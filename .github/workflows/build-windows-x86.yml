@@ -25,14 +25,18 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip wheel "setuptools<82"
-          pip install --only-binary=:all: pyusb pyserial colorama pycryptodome pycryptodomex
+          python -m pip install --only-binary=:all: pyusb pyserial colorama pycryptodome pycryptodomex
 
       - name: Install engine deps (pinned, win32 wheels)
         shell: pwsh
         run: |
-          pip install pyinstaller
-          pip install --only-binary=:all: keystone-engine==0.9.2 capstone==5.0.0 unicorn==2.1.4
+          python -m pip install --only-binary=:all: keystone-engine==0.9.2 capstone==5.0.0 unicorn==2.1.4
+          python -m pip install pyinstaller
           python -c "import capstone, keystone, unicorn, usb, serial; print('import ok')"
+
+      - name: Install FUSE Python module
+        shell: pwsh
+        run: python -m pip install mfusepy
 
       - name: Grab 32-bit libusb DLL for pyusb
         shell: pwsh
