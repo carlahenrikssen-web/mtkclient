@@ -1,0 +1,48 @@
+name: Build mtkclient (Windows x86 / 32-bit)
+
+on:
+  workflow_dispatch:          # manual "Run workflow" button
+  push:
+    tags: ['v*']              # or on a tag
+
+jobs:
+  build:
+    runs-on: windows-latest   # x64 host — we force x86 python onto it
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up 32-bit Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          architecture: 'x86'          # <-- THIS is what yields a 32-bit exe
+
+      - name: Prove the interpreter is really 32-bit
+        run: python -c "import struct,sys;print(sys.version);assert struct.calcsize('P')*8==32,'NOT 32-bit!'"
+
+      - name: Install deps + PyInstaller
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build single-file exe (CLI only)
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile `
+            --name mtk `
+            --collect-all mtkclient `
+            --collect-all capstone `
+            --collect-all keystone `
+            --collect-all unicorn `
+            --hidden-import usb `
+            --hidden-import serial `
+            --exclude-module PySide6 `
+            mtk.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mtk-windows-x86
+          path: dist/mtk.exe
+          
