@@ -48,6 +48,7 @@ jobs:
           pyinstaller --noconfirm --clean --onefile `
             --name mtk `
             --collect-all mtkclient `
+            --collect-all mfusepy `
             --collect-all capstone `
             --collect-all keystone `
             --collect-all unicorn `
