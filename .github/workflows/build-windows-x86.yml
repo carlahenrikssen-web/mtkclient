@@ -21,11 +21,17 @@ jobs:
       - name: Prove the interpreter is really 32-bit
         run: python -c "import struct,sys;print(sys.version);assert struct.calcsize('P')*8==32,'NOT 32-bit!'"
 
-      - name: Install runtime deps (NO GUI)
+      - name: Install base + crypto deps
         shell: pwsh
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          pip install pyusb pycryptodome pycryptodomex colorama pyserial keystone-engine capstone unicorn mfusepy
+          pip install --only-binary=:all: pyusb pyserial colorama pycryptodome pycryptodomex mfusepy
+
+      - name: Install engine deps (pinned, win32 wheels)
+        shell: pwsh
+        run: |
+          pip install --only-binary=:all: keystone-engine==0.9.2 capstone==5.0.9 unicorn==2.1.4
+          python -c "import capstone, keystone, unicorn, usb, serial; print('import ok')"
 
       - name: Grab 32-bit libusb DLL for pyusb
         shell: pwsh
@@ -56,3 +62,4 @@ jobs:
         with:
           name: mtk-windows-x86
           path: dist/mtk.exe
+          
