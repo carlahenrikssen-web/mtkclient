@@ -1,13 +1,14 @@
 name: Build mtkclient (Windows x86 / 32-bit)
 
 on:
-  workflow_dispatch:          # manual "Run workflow" button
+  workflow_dispatch:
   push:
-    tags: ['v*']              # or on a tag
+    branches: [main]
+    tags: ['v*']
 
 jobs:
   build:
-    runs-on: windows-latest   # x64 host — we force x86 python onto it
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -15,34 +16,43 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-          architecture: 'x86'          # <-- THIS is what yields a 32-bit exe
+          architecture: 'x86'
 
       - name: Prove the interpreter is really 32-bit
         run: python -c "import struct,sys;print(sys.version);assert struct.calcsize('P')*8==32,'NOT 32-bit!'"
 
-      - name: Install deps + PyInstaller
+      - name: Install runtime deps (NO GUI)
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip wheel setuptools
+          pip install pyusb pycryptodome pycryptodomex colorama pyserial keystone-engine capstone unicorn mfusepy
+
+      - name: Grab 32-bit libusb DLL for pyusb
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.7z" -OutFile libusb.7z
+          7z x libusb.7z -olibusb
 
       - name: Build single-file exe (CLI only)
         shell: pwsh
         run: |
+          $dll = (Get-ChildItem -Recurse libusb -Filter libusb-1.0.dll |
+                  Where-Object FullName -match 'MS32' | Select-Object -First 1).FullName
           pyinstaller --noconfirm --clean --onefile `
             --name mtk `
             --collect-all mtkclient `
             --collect-all capstone `
             --collect-all keystone `
             --collect-all unicorn `
+            --collect-all usb `
+            --add-binary "$dll;." `
             --hidden-import usb `
             --hidden-import serial `
             --exclude-module PySide6 `
+            --exclude-module shiboken6 `
             mtk.py
 
       - uses: actions/upload-artifact@v4
         with:
           name: mtk-windows-x86
           path: dist/mtk.exe
-          
