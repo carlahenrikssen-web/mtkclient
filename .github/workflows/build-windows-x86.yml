@@ -27,28 +27,36 @@ jobs:
           python -m pip install --upgrade pip wheel "setuptools<82"
           python -m pip install --only-binary=:all: pyusb pyserial colorama pycryptodome pycryptodomex
 
-      - name: Install engine deps (pinned, win32 wheels)
+      - name: Install engine deps + FUSE python module
         shell: pwsh
         run: |
           python -m pip install --only-binary=:all: keystone-engine==0.9.2 capstone==5.0.0 unicorn==2.1.4
-          python -m pip install pyinstaller
-          python -c "import capstone, keystone, unicorn, usb, serial; print('import ok')"
+          python -m pip install pyinstaller mfusepy
+          python -c "import capstone,keystone,unicorn,usb,serial,mfusepy; print('import ok')"
 
-      - name: Install FUSE Python module
-        shell: pwsh
-        run: python -m pip install mfusepy
-
-      - name: Grab 32-bit libusb DLL for pyusb
+      - name: Assert mfusepy is importable and resolve its real path
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.7z" -OutFile libusb.7z
-          7z x libusb.7z -olibusb
+          python -c "import mfusepy,os;print('mfusepy at:',os.path.abspath(mfusepy.__file__))"
+          if ($LASTEXITCODE -ne 0) { throw "mfusepy is NOT importable in the build environment" }
+
+      - name: Assert the native FUSE (WinFsp) and libusb DLLs are in the checkout
+        shell: pwsh
+        run: |
+          $need = @(
+            'mtkclient/Library/Filesystem/bin/winfsp-x86.dll',
+            'mtkclient/Library/Filesystem/bin/winfsp-x64.dll',
+            'mtkclient/Windows/libusb32-1.0.dll',
+            'mtkclient/Windows/libusb-1.0.dll'
+          )
+          foreach ($p in $need) {
+            if (-not (Test-Path $p)) { throw "MISSING from repo checkout: $p" }
+            Get-Item $p | Select-Object FullName,Length
+          }
 
       - name: Build single-file exe (CLI only)
         shell: pwsh
         run: |
-          $dll = (Get-ChildItem -Recurse libusb -Filter libusb-1.0.dll |
-                  Where-Object FullName -match 'MS32' | Select-Object -First 1).FullName
           pyinstaller --noconfirm --clean --onefile `
             --name mtk `
             --collect-all mtkclient `
@@ -57,12 +65,38 @@ jobs:
             --collect-all keystone `
             --collect-all unicorn `
             --collect-all usb `
-            --add-binary "$dll;." `
+            --hidden-import mfusepy `
             --hidden-import usb `
             --hidden-import serial `
+            --add-data "mtkclient/Library/Filesystem/bin;mtkclient/Library/Filesystem/bin" `
+            --add-data "mtkclient/Windows/libusb32-1.0.dll;." `
+            --add-data "mtkclient/Windows/libusb-1.0.dll;." `
             --exclude-module PySide6 `
             --exclude-module shiboken6 `
             mtk.py
+
+      - name: GATE - exe must start AND must not report a missing fuse module
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/mtk.exe)) { throw "dist/mtk.exe was not produced" }
+          $out = (& .\dist\mtk.exe --help 2>&1 | Out-String)
+          Write-Host $out
+          if ($out -match 'fuse library not installed')   { throw "FAIL: mfusepy/WinFsp missing from the built exe" }
+          if ($out -match 'FUSE unavailable')             { throw "FAIL: mfusepy/WinFsp missing from the built exe" }
+          if ($out -match 'Unable to find libfuse')       { throw "FAIL: winfsp DLL not found by mfusepy" }
+          if ($out -match 'No module named')              { throw "FAIL: a module is missing from the built exe" }
+          if ($out -notmatch 'usage:')                   { throw "FAIL: exe did not print usage text" }
+          Write-Host "GATE PASSED: exe runs and fuse module is bundled"
+
+      - name: GATE - prove mfusepy + winfsp really are inside the artifact
+        shell: pwsh
+        run: |
+          $b = [System.IO.File]::ReadAllBytes('dist/mtk.exe')
+          $s = [System.Text.Encoding]::ASCII.GetString($b)
+          if ($s -notmatch 'mfusepy')      { throw "FAIL: mfusepy not present inside dist/mtk.exe" }
+          if ($s -notmatch 'winfsp-x86')   { throw "FAIL: winfsp-x86.dll not present inside dist/mtk.exe" }
+          if ($s -notmatch 'libusb32')     { throw "FAIL: libusb32-1.0.dll not present inside dist/mtk.exe" }
+          Write-Host "GATE PASSED: mfusepy, winfsp-x86.dll and libusb32-1.0.dll are embedded in dist/mtk.exe"
 
       - uses: actions/upload-artifact@v4
         with:
